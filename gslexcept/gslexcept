@@ -1,0 +1,263 @@
+/****************************************************************************/
+/* Filename: gslexcept                                 Modified: 2021/05/02 */
+/*                                                                          */
+/* Wrap GSL errors as C++ exceptions, so that errors can be handled by each */
+/* routine locally.                                                         */
+/*                                                                          */
+/* To handle GSL errors as C++ exceptions, create an instance of            */
+/* gsl_exception::scope_handler in target scope. At the end of its          */
+/* lifecycle, the scope_handler will restore the previous error handle      */
+/* function it replaced.                                                    */
+/*                                                                          */
+/* A detailed demonstration can be found at the end of this file.           */
+/*                                                                          */
+/****************************************************************************/
+
+#pragma once
+
+#include <exception>
+#include <gsl/gsl_errno.h>
+
+namespace gsl_exception {
+struct gsl_error : public std::exception {
+  protected:
+    const char* _reason;
+    const char* _file;
+    int _line;
+    int _gsl_errno;
+
+    gsl_error(const char* reason, const char* file, int line, int gsl_errno)
+        : _reason(reason), _file(file), _line(line), _gsl_errno(gsl_errno) {}
+
+  public:
+    inline const char* reason(void) const { return _reason; }
+    inline const char* file(void) const { return _file; }
+    inline int line(void) const { return _line; }
+    inline virtual int code(void) const { return _gsl_errno; }
+    inline virtual const char* what(void) const noexcept {
+        return gsl_strerror(this->code());
+    }
+
+  public:
+    inline bool operator==(int n) const { return n == _gsl_errno; }
+    friend inline bool operator==(int n, const gsl_error& e) { return e == n; }
+
+    friend struct scope_handler;
+};
+
+#define __gslexcept_define(GSL_ERRNO, _NAME)                               \
+    struct _NAME : public gsl_error {                                      \
+      protected:                                                           \
+        _NAME(const char* _r, const char* _f, int _l, int _n)              \
+            : gsl_error(_r, _f, _l, _n) {}                                 \
+                                                                           \
+      public:                                                              \
+        friend struct scope_handler;                                       \
+        inline virtual int code(void) const noexcept { return GSL_ERRNO; } \
+    };
+__gslexcept_define(GSL_SUCCESS, success);
+__gslexcept_define(GSL_FAILURE, failue);
+__gslexcept_define(GSL_CONTINUE, gslcontinue);
+__gslexcept_define(GSL_EDOM, dom);
+__gslexcept_define(GSL_ERANGE, range);
+__gslexcept_define(GSL_EFAULT, fault);
+__gslexcept_define(GSL_EINVAL, inval);
+__gslexcept_define(GSL_EFAILED, failed);
+__gslexcept_define(GSL_EFACTOR, factor);
+__gslexcept_define(GSL_ESANITY, sanity);
+__gslexcept_define(GSL_ENOMEM, nomem);
+__gslexcept_define(GSL_EBADFUNC, badfunc);
+__gslexcept_define(GSL_ERUNAWAY, runaway);
+__gslexcept_define(GSL_EMAXITER, maxiter);
+__gslexcept_define(GSL_EZERODIV, zerodiv);
+__gslexcept_define(GSL_EBADTOL, badtol);
+__gslexcept_define(GSL_ETOL, tol);
+__gslexcept_define(GSL_EUNDRFLW, undrflw);
+__gslexcept_define(GSL_EOVRFLW, ovrflw);
+__gslexcept_define(GSL_ELOSS, loss);
+__gslexcept_define(GSL_EROUND, round);
+__gslexcept_define(GSL_EBADLEN, badlen);
+__gslexcept_define(GSL_ENOTSQR, notsqr);
+__gslexcept_define(GSL_ESING, sing);
+__gslexcept_define(GSL_EDIVERGE, diverge);
+__gslexcept_define(GSL_EUNSUP, unsup);
+__gslexcept_define(GSL_EUNIMPL, unimpl);
+__gslexcept_define(GSL_ECACHE, cache);
+__gslexcept_define(GSL_ETABLE, table);
+__gslexcept_define(GSL_ENOPROG, noprog);
+__gslexcept_define(GSL_ENOPROGJ, noprogj);
+__gslexcept_define(GSL_ETOLF, tolf);
+__gslexcept_define(GSL_ETOLX, tolx);
+__gslexcept_define(GSL_ETOLG, tolg);
+__gslexcept_define(GSL_EOF, eof);
+#undef __gslexcept_define
+
+struct scope_handler {
+    scope_handler() : _old_handler(take_over()) {}
+    ~scope_handler() { hand_back(_old_handler); }
+
+  protected:
+    gsl_error_handler_t* _old_handler;
+    inline static gsl_error_handler_t* take_over(void) noexcept {
+        return gsl_set_error_handler(_handler);
+    }
+    inline static gsl_error_handler_t*
+    hand_back(gsl_error_handler_t* new_handler = nullptr) noexcept {
+        return gsl_set_error_handler(new_handler);
+    }
+
+    static void _handler(const char* _r, const char* _f, int _l, int _n) {
+        switch (_n) {
+        default:
+            throw gsl_error(_r, _f, _l, _n);
+#define __gslexcept_throw(GSL_ERRNO, name) \
+    case GSL_ERRNO:                        \
+        throw name(_r, _f, _l, _n);
+            __gslexcept_throw(GSL_SUCCESS, success);
+            __gslexcept_throw(GSL_FAILURE, failue);
+            __gslexcept_throw(GSL_CONTINUE, gslcontinue);
+            __gslexcept_throw(GSL_EDOM, dom);
+            __gslexcept_throw(GSL_ERANGE, range);
+            __gslexcept_throw(GSL_EFAULT, fault);
+            __gslexcept_throw(GSL_EINVAL, inval);
+            __gslexcept_throw(GSL_EFAILED, failed);
+            __gslexcept_throw(GSL_EFACTOR, factor);
+            __gslexcept_throw(GSL_ESANITY, sanity);
+            __gslexcept_throw(GSL_ENOMEM, nomem);
+            __gslexcept_throw(GSL_EBADFUNC, badfunc);
+            __gslexcept_throw(GSL_ERUNAWAY, runaway);
+            __gslexcept_throw(GSL_EMAXITER, maxiter);
+            __gslexcept_throw(GSL_EZERODIV, zerodiv);
+            __gslexcept_throw(GSL_EBADTOL, badtol);
+            __gslexcept_throw(GSL_ETOL, tol);
+            __gslexcept_throw(GSL_EUNDRFLW, undrflw);
+            __gslexcept_throw(GSL_EOVRFLW, ovrflw);
+            __gslexcept_throw(GSL_ELOSS, loss);
+            __gslexcept_throw(GSL_EROUND, round);
+            __gslexcept_throw(GSL_EBADLEN, badlen);
+            __gslexcept_throw(GSL_ENOTSQR, notsqr);
+            __gslexcept_throw(GSL_ESING, sing);
+            __gslexcept_throw(GSL_EDIVERGE, diverge);
+            __gslexcept_throw(GSL_EUNSUP, unsup);
+            __gslexcept_throw(GSL_EUNIMPL, unimpl);
+            __gslexcept_throw(GSL_ECACHE, cache);
+            __gslexcept_throw(GSL_ETABLE, table);
+            __gslexcept_throw(GSL_ENOPROG, noprog);
+            __gslexcept_throw(GSL_ENOPROGJ, noprogj);
+            __gslexcept_throw(GSL_ETOLF, tolf);
+            __gslexcept_throw(GSL_ETOLX, tolx);
+            __gslexcept_throw(GSL_ETOLG, tolg);
+            __gslexcept_throw(GSL_EOF, eof);
+#undef __gslexcept_throw
+        }
+    }
+};
+}; // namespace gsl_exception
+
+#if 0
+// detailed demonstration
+
+#include "gslexcept"
+#include <gsl/gsl_sf_log.h>
+#include <iostream>
+
+void third_party_error_handler(const char* reason, const char*, int, int) {
+    std::printf("error ignored by third_party_error_handler: %s\n", reason);
+}
+
+int main(int, char**) {
+
+    // default GSL error handler in effect
+
+    gsl_sf_result res;
+
+    {
+        gsl_exception::scope_handler h1;
+        // gsl_exception takes effect
+
+        try {
+
+            std::puts("1st try-block entered");
+
+            gsl_sf_log_e(-1, &res);               // exception raised
+
+            std::puts("1st try-block continues"); // not executed
+
+        } catch (const gsl_exception::dom& e) {   // catch-block entered
+
+            std::printf("exception in 1st catch-block: %s\n", e.what());
+
+        }
+
+        gsl_set_error_handler(&third_party_error_handler);
+        // third_party_error_handler takes effect
+
+        try {
+
+            gsl_exception::scope_handler h2;
+            // gsl_exception takes effect
+
+            std::puts("2nd try-block entered");
+
+            gsl_sf_log_e(-1, &res); // exception raised
+
+            // h2 lifecycle ends, third_party_error_handler back in effect
+
+            std::puts("2nd try-block continues"); // not executed
+
+        } catch (const gsl_exception::dom& e) {   // catch-block entered
+
+            std::printf("exception in 2nd catch-block: %s\n", e.what());
+
+            gsl_sf_log_e(-1, &res); // exception not raised
+            // GSL_EDOM handled by third_party_error_handler
+
+        }
+
+        try {
+
+            std::puts("3rd try-block entered");
+
+            gsl_sf_log_e(-1, &res); // exception not raised
+            // GSL_EDOM handled by third_party_error_handler
+
+            std::puts("3rd try-block continues"); // executed
+
+        } catch (const gsl_exception::dom& e) {   // catch-block not entered
+
+            std::printf("exception in 3rd catch-block: %s\n", e.what());
+
+        }
+
+        // h1 lifecycle ends, GSL default error handler back in effect
+    }
+
+    std::puts("calling in main block");
+
+    gsl_sf_log_e(-1, &res);
+    // GSL_EDOM handled by default GSL error handler
+    // Aborted
+
+    return 0;
+}
+
+/* Demo output:
+ *
+ * 1st try-block entered
+ * exception in 1st catch-block: input domain error
+ * 2nd try-block entered
+ * exception in 2nd catch-block: input domain error
+ * error ignored by third_party_error_handler: domain error
+ * 3rd try-block entered
+ * error ignored by third_party_error_handler: domain error
+ * 3rd try-block continues
+ * calling in main block
+ * gsl: log.c:116: ERROR: domain error
+ * Default GSL error handler invoked.
+ * Aborted
+ */
+
+// end of demonstration
+#endif
+
+// vi:ft=cpp

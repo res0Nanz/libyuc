@@ -1,0 +1,78 @@
+// version 2.0
+#pragma once
+
+#include <cmath>
+#include <set>
+
+namespace yuc {
+class log_interpolator {
+  protected:
+    struct data_point {
+        double x, y;
+        bool operator<(const data_point& d) const { return x < d.x; }
+    };
+
+  protected:
+    std::set<data_point> data;
+
+  public:
+    log_interpolator(void) {}
+    template <typename V> log_interpolator(const V& xa, const V& ya) {
+        insert(xa, ya);
+    }
+
+  public:
+    void clear(void) { data.clear(); }
+    void insert(double x, double y) {
+        if (x >= 0 && y >= 0) {
+            data.insert({std::log(x), std::log(y)});
+        }
+    }
+    template <typename V> void insert(const V& xa, const V& ya) {
+        for (size_t i = 0; i < xa.size(); ++i) {
+            this->insert(xa[i], ya[i]);
+        }
+    }
+
+  public:
+    double operator()(double x) const {
+        if (x < 0 || data.size() < 2) {
+            return NAN;
+        }
+        x = std::log(x);
+
+        auto it1 = data.upper_bound({x}), it2 = std::prev(it1);
+        if (it1 == data.begin()) {
+            it2 = std::next(it1);
+        } else if (it1 == data.end()) {
+            it1 = std::prev(it2);
+        }
+
+        const double x1 = it1->x, y1 = it1->y;
+        const double x2 = it2->x, y2 = it2->y;
+        if (x1 == x2) {
+            return std::exp(0.5 * (y1 + y2));
+        }
+        if (y1 == -HUGE_VAL || y2 == -HUGE_VAL) {
+            if (y1 == y2) {
+                return 0.;
+            } else {
+                // use log-linear interpolation if one y is zero
+                return std::exp(y1) +
+                       (x - x1) * (std::exp(y2) - std::exp(y1)) / (x2 - x1);
+            }
+        }
+        return std::exp(y1 + (x - x1) * (y2 - y1) / (x2 - x1));
+        // (power-law extrapolating behavior)
+    }
+    template <typename V> V operator()(const V& xs) const {
+        V ys(xs.size());
+        for (size_t i = 0; i < xs.size(); ++i) {
+            ys[i] = this->operator()(xs[i]);
+        }
+        return ys;
+    }
+};
+};
+
+// vi:ft=cpp

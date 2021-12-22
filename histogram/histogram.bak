@@ -1,0 +1,152 @@
+#pragma once
+
+#include <valarray>
+#include <stdexcept>
+
+namespace yuc {
+struct histogram {
+public:
+  using array_t = std::valarray<double>;
+
+protected:
+  array_t _v_bins;             // bin edges
+  array_t _v_m0, _v_m1, _v_m2; // moments for each bin
+
+  double _tot_w;
+
+public:
+  void refresh(void) {
+    _v_m0.resize(_v_bins.size() + 1, 0.);
+    _v_m1.resize(_v_bins.size() + 1, 0.);
+    _v_m2.resize(_v_bins.size() + 1, 0.);
+    _tot_w = 0;
+  }
+
+  void rebin(const array_t &__new_bins) {
+    if (_v_bins.size()) {
+      throw std::logic_error("rebinning not implemented yet");
+    } else {
+      _v_bins = __new_bins;
+      this->refresh();
+    }
+  }
+
+  void rebin(double __xmin, double __xmax, int __nbin) {
+    if (__xmin > __xmax) {
+      std::swap(__xmin, __xmax);
+    }
+    array_t newbin(0., std::abs(__nbin) + 1);
+    if (__nbin < 0) { // log grid for negative __nbin
+      for (size_t i = 0; i < newbin.size(); ++i) {
+        double f = i / (double)-__nbin;
+        newbin[i] = std::pow(__xmin, 1 - f) * std::pow(__xmax, f);
+      }
+    } else { // linear grid
+      for (size_t i = 0; i < newbin.size(); ++i) {
+        double f = i / (double)__nbin;
+        newbin[i] = __xmin * (1 - f) + __xmax * f;
+      }
+    }
+    this->rebin(newbin);
+  }
+
+  size_t locate(double x) const {
+    size_t _ibin =
+        std::upper_bound(begin(_v_bins), end(_v_bins), x) - begin(_v_bins);
+    return _ibin < _v_bins.size() ? _ibin - 1 : - 1;
+  }
+
+  void fill(size_t ibin, double weight = 1) {
+    const size_t _ibin = ibin + 1;
+    if (_ibin > size()) {
+      throw std::logic_error("histogram filled out of range");
+    }
+    const double xlow = _v_bins[ibin];
+    const double xhig = _v_bins[_ibin];
+    _v_m0[_ibin] += weight;
+    _v_m1[_ibin] += weight * (xlow + xhig) / 2.;
+    _v_m2[_ibin] += weight * (xlow * xhig + xlow * xlow + xhig * xhig) / 3.;
+    _tot_w += weight;
+  }
+  void fill(double x, double weight = 1) {
+    const size_t _ibin =
+        std::upper_bound(begin(_v_bins), end(_v_bins), x) - begin(_v_bins);
+    _v_m0[_ibin] += weight;
+    _v_m1[_ibin] += weight * x;
+    _v_m2[_ibin] += weight * x * x;
+    _tot_w += weight;
+  }
+
+public:
+  size_t size(void) const {
+    return _v_bins.size() > 0 ? _v_bins.size() - 1 : 0;
+  }
+
+  double total_weight(void) const { return _tot_w; }
+  double mean(void) const { return _v_m1.sum() / _tot_w; }
+  double variance(void) const {
+    const double m1 = _v_m1.sum() / _tot_w;
+    const double m2 = _v_m2.sum() / _tot_w;
+    return m2 - m1 * m1;
+  }
+
+  double x_edges(size_t i) const { return _v_bins[i]; }
+  const array_t &x_edges(void) const { return _v_bins; }
+
+  double x_lin(size_t i) const { return (_v_bins[i] + _v_bins[i + 1]) / 2; }
+  array_t x_lin(void) const {
+    const auto d = size();
+    return (_v_bins[std::slice(0, d, 1)] + _v_bins[std::slice(1, d, 1)]) / 2;
+  }
+
+  double x_log(size_t i) const {
+    return std::sqrt(_v_bins[i] * _v_bins[i + 1]);
+  }
+  array_t x_log(void) const {
+    const auto d = size();
+    return std::sqrt(_v_bins[std::slice(0, d, 1)] *
+                     _v_bins[std::slice(1, d, 1)]);
+  }
+
+  double weight(size_t i) const { return _v_m0[i + 1]; }
+  array_t weight(void) const { return _v_m0[std::slice(1, size(), 1)]; }
+
+  double probability(size_t i) const { return weight(i) / _tot_w; }
+  array_t probability(void) const { return weight() / _tot_w; }
+
+  double dx(size_t i) const { return _v_bins[i + 1] - _v_bins[i + 0]; }
+
+  double dNdx(size_t i) const { return weight(i) / dx(i); }
+  array_t dNdx(void) const {
+    array_t f(size());
+    for (size_t i = 0; i < f.size(); ++i) {
+      f[i] = dNdx(i);
+    }
+    return f;
+  }
+
+  double pdf(size_t i) const { return probability(i) / dx(i); }
+  array_t pdf(void) const {
+    array_t f(size());
+    for (size_t i = 0; i < f.size(); ++i) {
+      f[i] = pdf(i);
+    }
+    return f;
+  }
+
+  array_t cdf(void) const { // values on edge
+    array_t f = probability();
+    for (size_t i = 1; i < f.size(); ++i) {
+      f[i] += f[i - 1];
+    }
+    return f;
+  }
+
+  // double quantile(double) const;
+  // double interp_pdf(double) const;
+  // double interp_cdf(double) const;
+};
+
+}; // namespace yuc
+
+// vi:ft=cpp

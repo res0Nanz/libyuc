@@ -1,0 +1,25 @@
+{
+  "str1": "Roses are red\nViolets are blue",
+  "str2": "Roses are red\nViolets are blue",
+  "str3": "The quick brown fox jumps over the lazy dog.",
+  "str4": "The quick brown fox jumps over the lazy dog.",
+  "str5": "The quick brown fox jumps over the lazy dog.",
+  "str6": "Here are two quotation marks: \"\". Simple enough.",
+  "str7": "Here are three quotation marks: \"\"\".",
+  "str8": "Here are fifteen quotation marks: \"\"\"\"\"\"\"\"\"\"\"\"\"\"\".",
+  "str9": "\"This,\" she said, \"is just a pointless statement.\"",
+
+  "winpath": "C:\\Users\\nodejs\\templates",
+  "winpath2": "\\\\ServerX\\admin$\\system32\\",
+
+  "quoted": "Tom \"Dubs\" Preston-Werner",
+
+  "regex": "<\\i\\c*\\s*>",
+  "regex2": "I [dw]on't need \\d{2} apples",
+
+  "lines": "The first newline is\ntrimmed in raw strings.\n   All other whitespace\n   is preserved.\n",
+
+  "quot15": "Here are fifteen quotation marks: \"\"\"\"\"\"\"\"\"\"\"\"\"\"\"",
+  "apos15": "Here are fifteen apostrophes: '''''''''''''''",
+  "str": "'That,' she said, 'is still pointless.'"
+}

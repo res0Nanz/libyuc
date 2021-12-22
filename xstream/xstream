@@ -1,0 +1,196 @@
+#pragma once
+#include <fstream>
+#include <string>
+#include <valarray>
+#include <vector>
+
+// Data is always stored little_endian
+#if BYTE_ORDER == BIG_ENDIAN
+#define OXSTREAM_NUMERIC_WRITE write_reverse
+#define IXSTREAM_NUMERIC_READ read_reverse
+#else
+#define OXSTREAM_NUMERIC_WRITE write
+#define IXSTREAM_NUMERIC_READ read
+#endif
+
+namespace yuc {
+class oxstream : protected std::ofstream {
+  protected:
+    static constexpr size_t cell_witdh = 8;
+
+  public:
+    using std::ofstream::ofstream;
+
+    // Expose std::ofstream
+    using std::ofstream::close;
+    using std::ofstream::is_open;
+    using std::ofstream::open;
+    using std::ofstream::operator=;
+    // Expose std::ostream (none)
+    // Expose std::ios
+    using std::ofstream::bad;
+    using std::ofstream::eof;
+    using std::ofstream::fail;
+    using std::ofstream::good;
+    using std::ofstream::operator!;
+    using std::ofstream::operator bool;
+    using std::ofstream::clear;
+    using std::ofstream::rdstate;
+    using std::ofstream::setstate;
+    using std::ofstream::tie;
+
+    using std::ofstream::rdbuf;
+    using std::ofstream::beg;
+    using std::ofstream::cur;
+    using std::ofstream::end;
+    using std::ofstream::in;
+    using std::ofstream::out;
+    using std::ofstream::seekp;
+
+    template <typename char_type, typename Traits>
+    auto& operator<<(std::basic_streambuf<char_type, Traits>* sb) {
+        std::ofstream::operator<<(sb);
+        return *this;
+    }
+
+    void swap(oxstream& x) { std::ofstream::swap(x); };
+
+  protected:
+    using std::ofstream::write;
+    oxstream& write_reverse(const char* s, const std::streamsize n) {
+        for (const char* c = s + n; c-- != s; this->put(*c))
+            ;
+        return *this;
+    }
+
+  public:
+    oxstream& operator<<(double d) {
+        OXSTREAM_NUMERIC_WRITE((char*)&d, cell_witdh);
+        return *this;
+    }
+    oxstream& operator<<(size_t n) {
+        OXSTREAM_NUMERIC_WRITE((char*)&n, cell_witdh);
+        return *this;
+    }
+    oxstream& operator<<(long l) {
+        OXSTREAM_NUMERIC_WRITE((char*)&l, cell_witdh);
+        return *this;
+    }
+    oxstream& operator<<(const char* s) {
+        const char* p = s;
+        while (*p) {
+            ++p;
+        }
+        size_t n = p - s;
+        write(s, n);
+        n = cell_witdh - (n % cell_witdh);
+        while (n--) {
+            put('\0');
+        }
+        return *this;
+    }
+    oxstream& operator<<(const std::string& s) { return *this << s.c_str(); }
+    template <typename T> oxstream& operator<<(const std::vector<T>& v) {
+        this->operator<<(v.size());
+        for (auto it = v.begin(); it != v.end(); ++it) {
+            this->operator<<(*it);
+        }
+        return *this;
+    }
+    template <typename T> oxstream& operator<<(const std::valarray<T>& v) {
+        this->operator<<(v.size());
+        for (auto it = std::begin(v); it != std::end(v); ++it) {
+            this->operator<<(*it);
+        }
+        return *this;
+    }
+};
+
+class ixstream : protected std::ifstream {
+  protected:
+    static constexpr size_t cell_witdh = 8;
+
+  public:
+    using std::ifstream::ifstream;
+
+    using std::ifstream::close;
+    using std::ifstream::is_open;
+    using std::ifstream::open;
+    using std::ifstream::operator=;
+
+    using std::ifstream::bad;
+    using std::ifstream::eof;
+    using std::ifstream::fail;
+    using std::ifstream::good;
+    using std::ifstream::operator!;
+    using std::ifstream::operator bool;
+    using std::ifstream::clear;
+    using std::ifstream::rdstate;
+    using std::ifstream::setstate;
+    using std::ifstream::tie;
+
+    using std::ifstream::rdbuf;
+    using std::ifstream::beg;
+    using std::ifstream::cur;
+    using std::ifstream::end;
+    using std::ifstream::in;
+    using std::ifstream::out;
+    using std::ifstream::seekg;
+
+    void swap(ixstream& x) { std::ifstream::swap(x); };
+
+  protected:
+    using std::ifstream::read;
+    ixstream& read_reverse(char* s, const std::streamsize n) {
+        for (char* c = s + n; c-- != s; this->get(*c))
+            ;
+        return *this;
+    }
+
+  public:
+    ixstream& operator>>(double& d) {
+        IXSTREAM_NUMERIC_READ((char*)&d, cell_witdh);
+        return *this;
+    }
+    ixstream& operator>>(size_t& n) {
+        IXSTREAM_NUMERIC_READ((char*)&n, cell_witdh);
+        return *this;
+    }
+    ixstream& operator>>(long& l) {
+        IXSTREAM_NUMERIC_READ((char*)&l, cell_witdh);
+        return *this;
+    }
+    ixstream& operator>>(std::string& s) {
+        char cstr[cell_witdh + 1] = {};
+        do {
+            this->read(cstr, cell_witdh);
+            s += cstr;
+        } while (cstr[cell_witdh - 1]);
+        return *this;
+    }
+    template <typename T> ixstream& operator>>(std::vector<T>& v) {
+        size_t n;
+        this->operator>>(n);
+        v.resize(n);
+        for (auto it = v.begin(); it != v.end(); ++it) {
+            this->operator>>(*it);
+        }
+        return *this;
+    }
+    template <typename T> ixstream& operator>>(std::valarray<T>& v) {
+        size_t n;
+        this->operator>>(n);
+        v.resize(n);
+        for (auto it = std::begin(v); it != std::end(v); ++it) {
+            this->operator>>(*it);
+        }
+        return *this;
+    }
+};
+
+}; // namespace yuc
+
+#undef OXSTREAM_NUMERIC_WRITE
+#undef IXSTREAM_NUMERIC_READ
+
+// vi:ft=cpp

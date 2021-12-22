@@ -1,0 +1,456 @@
+/*
+ * yuc/argument: a useable command line argument parser
+ *
+ * #include <yuc/argument>
+ * int main(int argc, char* argv[]) {
+ *   yuc:argument arg;
+ *   arg.add_flag('v', "verbose", "print more infomation");
+ *   arg.add_option('i', "input", "inputfile", "/dev/stdin");
+ *   arg.add_option('n', "size",  "specific size", "-1");
+ *   if(arg.parse(argc, argv)) { return 1; }
+ *   std::ifstream ifs(arg["input"]);
+ *   size_t n = arg["size"];
+ *   bool verbose = arg["input"];
+ *   //...
+ * }
+ *
+ */
+
+#pragma once
+#include <algorithm>
+#include <iomanip>
+#include <iostream>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <type_traits>
+#include <vector>
+
+namespace yuc {
+class argument {
+
+protected:
+  class option {
+  public:
+    // Cannot have const member for 'std::sort' to work
+    char short_name;
+    std::string long_name;
+    std::string hint;
+    std::string value;
+    bool boolean; // TODO: adapt entire code with this flag
+    bool valid;
+
+  public:
+    // inline operator bool(void) { return !value.empty(); }
+    template <typename T,
+              typename = typename std::enable_if<
+                  !std::is_same<T, bool>::value && std::is_arithmetic<T>::value,
+                  T>::type>
+    operator T(void) const {
+      T v;
+      std::istringstream(value) >> v;
+      // TODO: validation
+      return v;
+    }
+    operator std::string &(void) { return value; }
+    operator const std::string &(void) const { return value; }
+    operator bool(void) const { return !value.empty() && value != "0"; }
+    const std::string &str(void) const { return value; }
+
+    friend std::ostream &operator<<(std::ostream &os, const option &opt) {
+      return os << opt.value;
+    }
+
+    template <typename InputFileStream = std::ifstream>
+    auto open_as_input(const std::string &default_path = "-",
+                       bool throw_at_failure = true) const {
+      std::string fn = value.empty() ? default_path : value;
+      if (fn.empty() || fn == "-") {
+        fn = "/dev/stdin";
+      }
+      InputFileStream ifs(fn);
+      if (throw_at_failure && !ifs) {
+        throw std::runtime_error("cannot read from '" + fn + "'");
+      }
+      return ifs;
+    }
+
+    template <typename OutputFileStream = std::ofstream>
+    auto open_as_output(const std::string &default_path = "-",
+                        bool throw_at_failure = true) const {
+      std::string fn = value.empty() ? default_path : value;
+      if (fn.empty() || fn == "-") {
+        fn = "/dev/stdout";
+      }
+      OutputFileStream ofs(fn);
+      if (throw_at_failure && !ofs) {
+        throw std::runtime_error("cannot write to '" + fn + "'");
+      }
+      return ofs;
+    }
+
+    struct less {
+      bool operator()(const option &o1, const option &o2) const {
+        char s1 = o1.short_name % 32, s2 = o2.short_name % 32;
+        if (s1 && s2) {
+          return s1 == s2 ? o1.short_name < o2.short_name
+                          : s1 < o2.short_name % 32;
+        } else if (s1 || s2) {
+          return (s1) ? (s1 <= o2.long_name.front() % 32)
+                      : (o1.long_name.front() % 32 < s1);
+        } else {
+          std::string l1 = o1.long_name, l2 = o2.long_name;
+          std::transform(l1.begin(), l1.end(), l1.begin(), ::toupper);
+          std::transform(l2.begin(), l2.end(), l2.begin(), ::toupper);
+          return l1 == l2 ? o1.long_name < o2.long_name : l1 < l2;
+        }
+      }
+    };
+  }; // class option
+
+protected:
+  std::vector<option> _options;
+  std::vector<option> _flags;
+  std::vector<std::string> _position;
+  std::string _usage_str;
+  std::string _help_str;
+
+  bool _parsed = false;
+
+protected:
+  // tried to use std::optional<option&> at first without success
+  // switched to pointer after reading:
+  //   https://foonathan.net/blog/2018/07/12/optional-reference.html
+  option *find_option(char short_name) {
+    for (auto &o : _options)
+      if (o.short_name == short_name)
+        return &o;
+    return nullptr;
+  }
+  const option *find_option(char short_name) const {
+    for (const auto &o : _options)
+      if (o.short_name == short_name)
+        return &o;
+    return nullptr;
+  }
+  option *find_flag(char short_name) {
+    for (auto &o : _flags)
+      if (o.short_name == short_name)
+        return &o;
+    return nullptr;
+  }
+  const option *find_flag(char short_name) const {
+    for (const auto &o : _flags)
+      if (o.short_name == short_name)
+        return &o;
+    return nullptr;
+  }
+  option *find_option(const std::string &long_name) {
+    for (auto &o : _options)
+      if (o.long_name == long_name)
+        return &o;
+    return nullptr;
+  }
+  const option *find_option(const std::string &long_name) const {
+    for (const auto &o : _options)
+      if (o.long_name == long_name)
+        return &o;
+    return nullptr;
+  }
+  option *find_flag(const std::string &long_name) {
+    for (auto &o : _flags)
+      if (o.long_name == long_name)
+        return &o;
+    return nullptr;
+  }
+  const option *find_flag(const std::string &long_name) const {
+    for (const auto &o : _flags)
+      if (o.long_name == long_name)
+        return &o;
+    return nullptr;
+  }
+
+public: // Helper section
+  void add_usage(const std::string &usage_str) { _usage_str = usage_str; }
+  void add_help(const std::string &help_str) { _help_str = help_str; }
+  void help(std::ostream &os = std::cout) {
+    if (!_usage_str.empty()) {
+      os << "Usage: " << _position[0] << ' ' << _usage_str;
+      if (_usage_str.back() != '\n') {
+        // What if on Windows?
+        os << std::endl;
+      }
+    }
+    if (!_help_str.empty()) {
+      os << _help_str;
+      if (_help_str.back() != '\n') {
+        os << std::endl;
+      }
+    } else {
+      std::stringstream ss;
+      ss << std::left;
+      std::vector<option> all_options = _options;
+      all_options.insert(all_options.end(), _flags.cbegin(), _flags.cend());
+      std::sort(all_options.begin(), all_options.end(), option::less());
+      ss << "Options:" << std::endl;
+      size_t maxl = 0;
+      for (const auto &opt : all_options) {
+        maxl = std::max(maxl, opt.long_name.length() +
+                                  (opt.boolean ? 0 : 1 + opt.value.length()));
+      }
+      maxl += 1;
+      for (const auto &opt : all_options) {
+        if (opt.short_name % 32) {
+          ss << "  -" << opt.short_name;
+          if (opt.long_name.empty()) {
+            ss << ' ' << std::setw(maxl + 3);
+          } else {
+            ss << ", --" << std::setw(maxl);
+          }
+        } else {
+          ss << std::right << std::setw(8) << "--" << std::left
+             << std::setw(maxl);
+        }
+        ss << opt.long_name +
+                  (opt.boolean
+                       ? ""
+                       : (opt.long_name.empty() ? ' ' : '=') + opt.value)
+           << opt.hint << std::endl;
+      }
+      os << ss.str();
+    }
+  }
+
+public:
+  // TODO: duplication check
+  void add_option(char short_name, const std::string &long_name,
+                  const std::string &hint) {
+    _options.push_back({short_name, long_name, hint, "", false, false});
+  }
+  void add_option(char short_name, const std::string &long_name,
+                  const std::string &hint, const std::string &default_value) {
+    _options.push_back(
+        {short_name, long_name, hint, default_value, false, true});
+  }
+  template <typename T>
+  void add_option(char short_name, const std::string &long_name,
+                  const std::string &hint, const T &default_value) {
+    std::stringstream ss;
+    ss << std::setprecision(16) << default_value;
+    _options.push_back({short_name, long_name, hint, ss.str(), false, true});
+  }
+  void add_flag(char short_name, const std::string &long_name,
+                const std::string &hint, bool default_value = false) {
+    _flags.push_back(
+        {short_name, long_name, hint, default_value ? "1" : "0", true, true});
+  }
+
+  size_t size(void) const { return _position.size(); }
+  const std::string &operator[](size_t i) const {
+    if (i >= _position.size())
+      throw std::logic_error("positional index out of range");
+    else
+      return _position[i];
+  }
+  std::string &operator[](size_t i) {
+    if (i >= _position.size())
+      throw std::logic_error("positional index out of range");
+    else
+      return _position[i];
+  }
+
+  const option &operator[](const std::string &name) const {
+    auto opt = find_option(name);
+    if (!opt) {
+      opt = find_flag(name);
+    }
+    if (opt) {
+      return *opt;
+    } else {
+      std::stringstream ss;
+      ss << "unknown option '" << name << "'";
+      throw std::logic_error(ss.str());
+    }
+  }
+  option &operator[](const std::string &name) {
+    auto opt = find_option(name);
+    if (!opt) {
+      opt = find_flag(name);
+    }
+    if (opt) {
+      return *opt;
+    } else {
+      std::stringstream ss;
+      ss << "unknown option '" << name << "'";
+      throw std::logic_error(ss.str());
+    }
+  }
+
+public: // open validation
+  template <size_t n> struct at_least {
+    bool operator()(const argument &arg) const {
+      return arg._position.size() > n;
+    }
+    const char *what() const { return "missing operand"; }
+  };
+
+  template <size_t n> struct at_most {
+    bool operator()(const argument &arg) const {
+      return arg._position.size() <= n + 1;
+    }
+    const char *what() const { return "extra operand"; }
+  };
+
+  template <size_t n> struct equal_to {
+    bool operator()(const argument &arg) const {
+      return arg._position.size() == n + 1;
+    }
+    const char *what() const { return "unmatched number of operands"; }
+  };
+
+public:
+  template <typename UnaryOperation = argument::at_least<0>>
+  bool parse(int argc, char **argv,
+             UnaryOperation valid_op = UnaryOperation()) {
+    if (_parsed) {
+      throw std::logic_error("do not parse again");
+    }
+    _parsed = true;
+    add_flag('h', "help", "print this helpful message", false);
+    _position.clear();
+    _position.emplace_back(argv[0]);
+
+    bool invalid = true;
+    for (size_t i = 1; i < argc; ++i) {
+      option *o;
+
+      const std::string a = argv[i];
+      if (a.substr(0, 2) == "--") {
+        if (a.length() == 2) { // --
+          while (++i < argc) {
+            _position.emplace_back(argv[i]);
+          }
+          break;
+        } else {
+          if (a.substr(2, 3) == "no-" && (o = find_flag(a.substr(5)))) {
+            // clear flag
+            o->value = "0";
+            o->valid = true;
+            continue;
+          } else if ((o = find_flag(a.substr(2)))) {
+            // set flag
+            o->value = "1";
+            o->valid = true;
+            continue;
+          } else {
+            size_t eqpos = a.find_first_of('=');
+            if (eqpos == a.npos && (o = find_option(a.substr(2)))) {
+              // seperated long argument
+              if (++i == argc) {
+                std::cerr << _position[0]
+                          << ": option requires an argument -- '" + a + '\''
+                          << std::endl;
+                goto invalid_arg;
+              } else {
+                o->value = argv[i];
+                o->valid = true;
+                continue;
+              }
+            } else if ((o = find_option(a.substr(2, eqpos - 2)))) {
+              // joined long argument
+              o->value = a.substr(eqpos + 1);
+              o->valid = true;
+              continue;
+            } else {
+              std::cerr << _position[0] << ": unrecognized option '" << a << "'"
+                        << std::endl;
+              goto invalid_arg;
+            }
+          }
+        }
+      } else if (a.length() > 1 && a[0] == '-') {
+        // short arguments
+        for (size_t j = 1; j < a.length(); ++j) {
+          if ((o = find_flag(a[j]))) {
+            o->value = "1";
+            o->valid = true;
+            continue;
+          } else if ((o = find_option(a[j]))) {
+            if (++j == a.length()) {
+              // end of string, read next argument
+              if (++i == argc) {
+                std::cerr << _position[0]
+                          << ": option requires an argument -- '" << a[--j]
+                          << '\'' << std::endl;
+                goto invalid_arg;
+              } else {
+                o->value = argv[i];
+                o->valid = true;
+              }
+            } else {
+              // read the rest
+              o->value = a.substr(j);
+              o->valid = true;
+            }
+            break; // out of current argv[i]
+          } else {
+            std::cerr << _position[0] << ": invalid option -- '" << a[j] << "'"
+                      << std::endl;
+            goto invalid_arg;
+          }
+        }
+      } else {
+        _position.emplace_back(argv[i]);
+        continue;
+      }
+    }
+
+    invalid = false;
+  invalid_arg:
+    if (invalid || *find_flag('h')) {
+      invalid = true;
+    } else if (!valid_op(*this)) {
+      std::cerr << _position[0] << ": " << valid_op.what() << std::endl;
+      invalid = true;
+    } else {
+      for (const auto &opt : _options) {
+        if (!opt.valid) {
+          invalid = true;
+          std::string name;
+          if (opt.short_name % 32 == 0) {
+            name = "--" + opt.long_name;
+          } else if (opt.long_name.empty()) {
+            name = '-';
+            name += opt.short_name;
+          } else {
+            name = '-';
+            name += opt.short_name;
+            name += "/--" + opt.long_name;
+          }
+          std::cerr << _position[0] << ": require option '" << name << "'"
+                    << std::endl;
+        }
+      }
+    }
+
+    if (invalid) {
+      this->help();
+    }
+    return !invalid;
+  }
+
+  // iterate through positional arguments (wihtout argv[0])
+  auto begin(void) { return _position.cbegin() + 1; }
+  auto end(void) { return _position.cend(); }
+};
+
+}; // namespace yuc
+
+#define _YUC_ARGUMENT_PARSE_ASSERTION(arg, argc, argv)                         \
+  {                                                                            \
+    if (!arg.parse(argc, argv)) {                                              \
+      return EXIT_FAILURE;                                                     \
+    }                                                                          \
+  }
+
+// vi:ft=cpp

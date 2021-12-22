@@ -1,0 +1,9 @@
+[dog."tater.man"]
+type.name ="pug"
+
+[fruit]
+apple.color= "red"
+apple.taste.sweet=true
+
+[fruit.apple.texture]  # you can add sub-tables
+smooth = true

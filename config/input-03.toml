@@ -1,0 +1,50 @@
+str1 = """
+Roses are red
+Violets are blue"""
+
+
+# On a Unix system, the above multi-line string will most likely be:
+str2 = "Roses are red\nViolets are blue"
+
+# The following strings are byte-for-byte equivalent:
+str3 = "The quick brown fox jumps over the lazy dog."
+
+str4 = """
+The quick brown \
+
+
+  fox jumps over \
+    the lazy dog."""
+
+str5 = """\
+       The quick brown \
+       fox jumps over \
+       the lazy dog.\
+       """
+
+str6 = """Here are two quotation marks: "". Simple enough."""
+str7 = """Here are three quotation marks: ""\"."""
+str8 = """Here are fifteen quotation marks: ""\"""\"""\"""\"""\"."""
+
+# "This," she said, "is just a pointless statement."
+str9 = """"This," she said, "is just a pointless statement.""""
+
+# What you see is what you get.
+winpath  = 'C:\Users\nodejs\templates'
+winpath2 = '\\ServerX\admin$\system32\'
+quoted   = 'Tom "Dubs" Preston-Werner'
+regex    = '<\i\c*\s*>'
+
+regex2 = '''I [dw]on't need \d{2} apples'''
+lines  = '''
+The first newline is
+trimmed in raw strings.
+   All other whitespace
+   is preserved.
+'''
+
+quot15 = '''Here are fifteen quotation marks: """""""""""""""'''
+apos15 = "Here are fifteen apostrophes: '''''''''''''''"
+
+# 'That,' she said, 'is still pointless.'
+str = ''''That,' she said, 'is still pointless.''''

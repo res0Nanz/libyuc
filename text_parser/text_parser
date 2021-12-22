@@ -1,0 +1,198 @@
+#pragma once
+
+#include <algorithm>
+#include <fstream>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+namespace yuc {
+class text_parser : public std::ifstream {
+  protected:
+    std::string _filename;
+    std::string _line;
+    size_t _lnum;
+
+  public:
+    bool trim_space;
+    bool trim_comment;
+    bool skip_empty_line;
+    bool skip_empty_field;
+    std::vector<std::string> comment_starter;
+    std::vector<std::string> field_seperator;
+
+  public:
+    size_t current_lnum(void) const { return _lnum; }
+    const std::string& current_line(void) const { return _line; }
+    const std::string& filename(void) const { return _filename; }
+
+  public:
+    text_parser(const std::string& filename,
+                const std::vector<std::string>& _comment_start = {})
+        : std::ifstream(filename), //
+          _filename(filename),     //
+          _line(""), _lnum(0),     //
+          trim_space(true),        //
+          trim_comment(true),      //
+          skip_empty_line(true),   //
+          skip_empty_field(true),  //
+          comment_starter(_comment_start) {}
+
+    text_parser& next_line() {
+        while (std::getline(*this, _line)) {
+            ++_lnum;
+            if (trim_comment) {
+                for (const auto& cs : comment_starter) {
+                    size_t pos = _line.find(cs);
+                    if (pos != _line.npos) {
+                        _line.erase(pos);
+                    }
+                }
+            }
+            if (trim_space) {
+                string_trim(_line);
+            }
+            if (_line.empty()) {
+                if (skip_empty_line) {
+                    continue;
+                }
+            } else {
+                // TODO: line break down
+            }
+            break;
+        }
+        return *this;
+    }
+
+    template <typename Ex = std::runtime_error>
+    void panic(const std::string& msg = "") const {
+        throw Ex(_filename + ":" +
+                 (_lnum ? (std::to_string(_lnum) + ": " +
+                           (msg.empty() ? "failed to parse" : msg))
+                        : " " + (msg.empty() ? "failed to read" : msg)));
+    }
+    text_parser& validate(const std::string& msg = "") {
+        if (!good()) {
+            panic(msg);
+        }
+        return *this;
+    }
+    const text_parser& validate(const std::string& msg = "") const {
+        if (!good()) {
+            panic(msg);
+        }
+        return *this;
+    }
+
+  public:
+    static std::string& string_trim(std::string& str) {
+        str.erase(str.begin(),
+                  std::find_if(str.begin(), str.end(), [](unsigned char ch) {
+                      return !std::isspace(ch);
+                  }));
+        str.erase(
+            std::find_if(str.rbegin(), str.rend(),
+                         [](unsigned char ch) { return !std::isspace(ch); })
+                .base(),
+            str.end());
+        return str;
+    }
+
+  public:
+    template <typename T> std::vector<T> as_fields(size_t n = 0) {
+        std::vector<T> vec;
+        vec.reserve(n);
+        std::stringstream ss(_line);
+        size_t nf = 0;
+        T tmp;
+        while ((n == 0 || vec.size() < n) && (ss >> tmp)) {
+            vec.push_back(std::move(tmp));
+        }
+        if (n && vec.size() < n) {
+            panic("cannot read field " + std::to_string(vec.size() + 1) +
+                  " of " + std::to_string(n));
+        }
+        vec.shrink_to_fit();
+        return vec;
+        // TODO: support custom seperators
+    }
+
+  public:
+    std::vector<std::vector<double>> parse_columns(size_t n = 0) {
+        if (_lnum == 0 || _line == "") {
+            next_line();
+        }
+
+        std::vector<std::vector<double>> table(n);
+        while (good()) {
+            auto line_fields = as_fields<double>(n);
+            if (n == 0) {
+                n = line_fields.size();
+            }
+            if (table.size() == 0) {
+                table.resize(n);
+            }
+            if (n) {
+                for (size_t i = 0; i < n; ++i) {
+                    table[i].push_back(line_fields[i]);
+                }
+            } else {
+                if (!skip_empty_line) {
+                    break;
+                }
+            }
+            next_line();
+        }
+        return table;
+    }
+
+  public:
+    // will be updated with std::filesystem in c++17
+    static std::string canonicalize(const std::string& p) {
+        std::vector<std::string> cmp;
+        const char* i1 = p.c_str();
+        while (*i1) {
+            auto i2 = i1 + 1;
+            while (*i2 && *i2 != '/') {
+                ++i2;
+            }
+            std::string c(i1, i2 - i1);
+            if (cmp.size() == 0 && c == "/..") {
+            } else if (cmp.size() == 0 || cmp.back() == "." ||
+                       cmp.back() == ".." || cmp.back() == "/..") {
+                cmp.push_back(c);
+            } else if (c == "/..") {
+                if (cmp.size() == 1) {
+                    cmp.back() = ".";
+                } else {
+                    cmp.pop_back();
+                }
+            } else if (c != "." && c != "/." && c != "/") {
+                cmp.push_back(c);
+            }
+            i1 = i2;
+        }
+        if (cmp.size() > 1 && cmp[0] == ".") {
+            cmp[0] = "";
+            cmp[1] = cmp[1].substr(1);
+        }
+        for (size_t i = 1; i < cmp.size(); ++i) {
+            cmp[0] += cmp[i];
+        }
+        return (cmp.size() ? cmp[0] : ".");
+    };
+
+  public:
+    static std::string relative_path(const std::string& base,
+                                     const std::string& rel) {
+        std::string b = base.empty() ? "." : base;
+        std::string r = rel.empty() ? "." : rel;
+        return canonicalize((r[0] == '/') ? r : (b + "/" + r));
+    }
+    std::string relative_path(const std::string& rel) const {
+        return relative_path(_filename + "/..", rel);
+    }
+};
+}; // namespace yuc
+
+// vi:ft=cpp

@@ -1,0 +1,260 @@
+#pragma once
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <functional>
+#include <iterator>
+#include <map>
+#include <string>
+#include <tuple>
+#include <type_traits>
+#include <typeinfo>
+#include <utility>
+#include <valarray>
+
+namespace yuc {
+template <typename T, typename = void> struct has_size : std::false_type {};
+#if __cplusplus >= 201703L
+template <typename T>
+struct has_size<T, decltype(size(std::declval<T>()), void())> : std::true_type {
+};
+#else
+// Pre-implementation of std::size introduced in std::c++17
+template <class C> constexpr auto size(const C &c) -> decltype(c.size()) {
+  return c.size();
+}
+template <class T, size_t N>
+constexpr size_t size(const T (&array)[N]) noexcept {
+  return N;
+}
+template <typename T>
+struct has_size<T, decltype(size(std::declval<T>()), void())> : std::true_type {
+};
+#endif
+
+/**
+ * Reverse a multi-dimentional array at a certain level.
+ *
+ * The dimension to be reversed has a size of `n`.
+ * The total volume of higher dimensions is `nl`.
+ * The total volume of deeper dimensions is `nr`.
+ * The total size of the array is `N = nl * n * nr`.
+ *
+ * This operation performs
+ *     arr[il][i][ir] <--> arr[il][(n - 1 - i)][ir]
+ * for all possible swaps in place.
+ *
+ * @param array  The array
+ * @param dims   The shape of the array
+ *                  (_,  _,  _)  =>  (N,  1,      1)
+ *                  (n,  _,  _)  =>  (n,  1,    N/n)
+ *                  (n, nl,  _)  =>  (n, nl, N/n/nl)
+ *                  (n, nl, nr)  ==  (n, nl,     nr)
+ *               When `N = std::size(array)` is not avaliable,
+ *               all three dimensions should be provided explicitly
+ */
+template <typename _Arr>
+_Arr &reverse(_Arr &array, size_t n = 0, size_t nl = 0, size_t nr = 0) {
+  size_t N = (n * nl * nr);
+  if (N == 0) {
+#if __cplusplus >= 201703L
+    if constexpr (has_size<_Arr>::value) {
+      N = std::size(array);
+    } else {
+      throw std::logic_error(
+          std::string("implicit dimension not supported for type [") +
+          std::type_info(array).name() + ']');
+    }
+#else
+    N = size(array);
+#endif
+    if (n == 0) {
+      n = N;
+    }
+    if (nl == 0) {
+      nl = 1;
+    }
+    if (nr == 0) {
+      nr = N / n / nl;
+    }
+  }
+  const size_t nnr = n * nr;
+#pragma omp parallel for
+  for (size_t il = 0; il < nl; ++il) {
+    for (size_t i = 0; i < n / 2; ++i) {
+      for (size_t ir = 0; ir < nr; ++ir) {
+        std::swap(array[il * nnr + i * nr + ir],
+                  array[(il + 1) * nnr - (i + 1) * nr + ir]);
+      }
+    }
+  }
+  return array;
+}
+
+/**
+ * Transpose array [n0][na][n1][nb][n2] into [n0][nb][n1][na][n2]
+ */
+template <typename _Arr>
+_Arr &transpose(_Arr &array, size_t na, size_t nb = 0,
+                const std::array<size_t, 3> &ns = {1, 1, 1}) {
+  if (nb == 0) {
+    nb = na;
+  }
+  if (na * nb * ns[0] * ns[1] * ns[2] == 0) {
+    throw std::logic_error(
+        "transposing with zero dimensions: [" + std::to_string(ns[0]) + "," +
+        std::to_string(na) + "," + std::to_string(ns[1]) + "," +
+        std::to_string(nb) + "," + std::to_string(ns[2]) + "]");
+  }
+
+  if (na == nb) { // trivial square swap
+#pragma omp parallel for collapse(3)
+    for (size_t i0 = 0; i0 < ns[0]; ++i0) {
+      for (size_t ia = 1; ia < na; ++ia) {
+        for (size_t i1 = 0; i1 < ns[1]; ++i1) {
+          for (size_t ib = 0; ib < ia; ++ib) {
+            auto it_old = std::begin(array) +
+                          (((i0 * na + ia) * ns[1] + i1) * na + ib) * ns[2];
+            auto it_new = std::begin(array) +
+                          (((i0 * na + ib) * ns[1] + i1) * na + ia) * ns[2];
+            std::swap_ranges(it_old, it_old + ns[2], it_new);
+          }
+        }
+      }
+    }
+  } else { // swap to temporary space
+    _Arr newarr(array.size());
+#pragma omp parallel for collapse(4)
+    for (size_t i0 = 0; i0 < ns[0]; ++i0) {
+      for (size_t ia = 0; ia < na; ++ia) {
+        for (size_t i1 = 0; i1 < ns[1]; ++i1) {
+          for (size_t ib = 0; ib < nb; ++ib) {
+            auto block_old = std::begin(array) +
+                             (((i0 * na + ia) * ns[1] + i1) * nb + ib) * ns[2];
+            auto block_new = std::begin(newarr) +
+                             (((i0 * nb + ib) * ns[1] + i1) * na + ia) * ns[2];
+            std::move(block_old, block_old + ns[2], block_new);
+          }
+        }
+      }
+    }
+    array = std::move(newarr);
+  }
+  return array;
+}
+
+template <typename T = double>
+inline std::valarray<T> genspace(size_t n, const std::function<T(size_t)> &gen =
+#if __cplusplus >= 202002L
+                                               std::identity()
+#else
+                                              [](size_t i) { return i; }
+#endif
+) {
+  std::valarray<T> space(n);
+  auto it = std::end(space);
+  while (n--) {
+    *--it = gen(n);
+  }
+  return space;
+}
+inline std::valarray<double> linspace(double min, double max, double delta) {
+  return genspace<double>((max - min) / delta + 1.001,
+                          [=](auto i) { return min + i * delta; });
+}
+inline std::valarray<double> logspace(double min, double max, double factor) {
+  return std::exp(linspace(std::log(min), std::log(max), std::log(factor)));
+}
+// "min:max:num", with num>0 for linspace and num<0 for logspace
+inline std::valarray<double> genspace(const std::string &binspec) {
+  double xmin, xmax;
+  long num;
+  if (3 != std::sscanf(binspec.c_str(), "%lf:%lf:%ld", &xmin, &xmax, &num) ||
+      num == 0 || (num < 0 && (xmin <= 0 || xmax <= 0))) {
+    return {};
+  }
+  if (xmin > xmax) {
+    std::swap(xmin, xmax);
+  }
+  if (num > 0) {
+    return linspace(xmin, xmax, (xmax - xmin) / num);
+  } else {
+    xmin = std::log(xmin);
+    xmax = std::log(xmax);
+    return std::exp(linspace(xmin, xmax, (xmax - xmin) / -num));
+  }
+}
+
+template <typename T>
+inline std::valarray<T> meshgrid(size_t lsize, const std::valarray<T> &arr,
+                                 size_t rsize = 1) {
+  return genspace<T>(lsize * rsize * arr.size(),
+                     [&](size_t i) { return arr[i % arr.size() / rsize]; });
+}
+template <typename T>
+inline std::valarray<T> meshgrid(const std::valarray<T> &arr, size_t rsize) {
+  return genspace<T>(rsize * arr.size(),
+                     [&](size_t i) { return arr[i / rsize]; });
+}
+
+// -- thread loop -- //
+
+namespace __detail {
+template <typename... Types>
+struct thread_impl : public std::tuple<Types &...> {
+  using std::tuple<Types &...>::tuple;
+
+  template <typename... ItTypes>
+  struct iterator : public std::tuple<ItTypes...> {
+    using tuple_type = std::tuple<ItTypes...>;
+    using end_iterator = typename std::tuple_element<0, tuple_type>::type;
+    iterator(tuple_type &&t) : tuple_type(t) {}
+
+    template <std::size_t I = 0> void inc_impl(void) {
+      if constexpr (I < sizeof...(ItTypes)) {
+        ++std::get<I>(*this), inc_impl<I + 1>();
+      }
+    }
+    auto &operator++(void) { return inc_impl<0>(), *this; }
+
+    bool operator!=(end_iterator eid) const {
+      return std::get<0>(*this) != eid;
+    }
+
+    template <typename... RefTypes>
+    auto deref_impl(std::tuple<RefTypes &...> &&r = std::tuple<>()) const {
+      constexpr auto I = sizeof...(RefTypes);
+      if constexpr (sizeof...(ItTypes) == I) {
+        return std::move(r);
+      } else {
+        using ele_type = decltype(*std::get<I>(*this));
+        return deref_impl(
+            std::tuple_cat(r, std::tuple<ele_type &&>(*std::get<I>(*this))));
+      }
+    }
+    auto operator*(void) const { return deref_impl(); }
+  };
+
+  template <typename... ItTypes>
+  auto begin(std::tuple<ItTypes...> &&o = std::tuple<>()) const {
+    constexpr auto I = sizeof...(ItTypes);
+    if constexpr (sizeof...(Types) == I) {
+      return iterator<ItTypes...>(std::move(o));
+    } else {
+      return begin(
+          std::tuple_cat(o, std::make_tuple(std::begin(std::get<I>(*this)))));
+    }
+  }
+  auto end(void) const { return std::end(std::get<0>(*this)); }
+};
+}; // namespace __detail
+
+// Usage: for (auto&& [e1, e2, e3] : thread(v1, v2, v3)) {...}
+template <typename... Types> auto thread(Types &&...types) {
+  return __detail::thread_impl<Types...>(types...);
+}
+
+}; // namespace yuc
+
+// vi:ft=cpp

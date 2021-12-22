@@ -1,0 +1,68 @@
+#pragma once
+#include <cstdio>
+#include <iostream>
+#include <memory>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace yuc {
+
+template <typename... Args>
+std::string format(const std::string& fmt, Args... args) {
+    size_t size = std::snprintf(nullptr, 0, fmt.c_str(), args...) + 1;
+    std::unique_ptr<char[]> buf(new char[size]);
+    std::snprintf(buf.get(), size, fmt.c_str(), args...);
+    return std::string(buf.get(), buf.get() + size - 1);
+}
+
+template <typename SeperatorType, typename LastType>
+std::ostream& stream_join(std::ostream& os, SeperatorType, LastType last) {
+    return os << last;
+}
+template <typename SeperatorType, typename FirstType, typename... RestType>
+std::ostream& stream_join(std::ostream& os, SeperatorType sep, FirstType first,
+                          RestType... rest) {
+    os << first << sep;
+    return stream_join(os, sep, rest...);
+}
+
+template <typename SeperatorType, typename... T>
+std::string string_join(SeperatorType sep, T... args) {
+    std::stringstream ss;
+    stream_join(ss, sep, args...);
+    return ss.str();
+}
+
+std::string toupper(std::string str) {
+    for (auto& c : str) {
+        c = std::toupper(c);
+    }
+    return str;
+}
+std::string tolower(std::string str) {
+    for (auto& c : str) {
+        c = std::tolower(c);
+    }
+    return str;
+}
+}; // namespace yuc
+
+namespace std {
+
+template <typename T>
+std::ostream& operator<<(std::ostream& os, const std::vector<T> v) {
+    auto it = v.cbegin();
+    os << '{';
+    while (true) {
+        os << *it;
+        if (++it == v.cend()) {
+            return os << '}';
+        } else {
+            os << ',';
+        }
+    }
+}
+}; // namespace std
+
+// vi:ft=cpp

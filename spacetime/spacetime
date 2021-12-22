@@ -1,0 +1,264 @@
+#pragma once
+#include <cmath>
+#include <iostream>
+#include <limits>
+
+#ifndef METRIC
+#define METRIC PMMM
+#endif
+
+namespace yuc {
+class three_vector {
+  public:
+    double data[3];
+
+  public: // operations
+    inline double& operator[](size_t i) { return data[i]; }
+    inline double  operator[](size_t i) const { return data[i]; }
+    inline double& operator()(size_t i) { return data[i - 1]; }
+    inline double  operator()(size_t i) const { return data[i - 1]; }
+
+    // plus and minus
+    inline three_vector& operator+=(const three_vector& v2) {
+        for (int i = 0; i < 3; ++i) {
+            this->data[i] += v2.data[i];
+        }
+        return *this;
+    }
+    inline three_vector& operator-=(const three_vector& v2) {
+        for (int i = 0; i < 3; ++i) {
+            this->data[i] -= v2.data[i];
+        }
+        return *this;
+    }
+    inline three_vector operator+(const three_vector& v2) const {
+        auto v = *this;
+        return v += v2;
+    }
+    inline three_vector operator-(const three_vector& v2) const {
+        auto v = *this;
+        return v -= v2;
+    }
+    inline three_vector operator-(void) const {
+        return {-data[0], -data[1], -data[2]};
+    }
+
+    // multiply and divide
+    inline three_vector& operator*=(double k) {
+        for (int i = 0; i < 3; ++i) {
+            this->data[i] *= k;
+        }
+        return *this;
+    }
+    inline three_vector& operator/=(double k) {
+        for (int i = 0; i < 3; ++i) {
+            this->data[i] /= k;
+        }
+        return *this;
+    }
+    inline three_vector operator*(double k) const {
+        auto v = *this;
+        return v *= k;
+    }
+    inline three_vector operator/(double k) const {
+        auto v = *this;
+        return v /= k;
+    }
+    friend inline three_vector operator*(double k, const three_vector& v) {
+        return v*k;
+    }
+
+    inline double operator*(const three_vector& v2) const {
+        return data[0] * v2.data[0] + data[1] * v2.data[1] +
+               data[2] * v2.data[2];
+    }
+
+  public: // porperties
+    inline double squared(void) const { return (*this) * (*this); }
+    inline double norm(void) const { return std::sqrt(squared()); }
+    inline three_vector& normalize(const double n = 1) {
+        double m = norm(); // if m == 0, do nothing
+        return m > 0 ? (*this) *= (n / m) : (*this);
+    }
+    inline three_vector normalized(double n = 1) const {
+        auto v = *this;
+        return v.normalize(n);
+    }
+    inline double operator^(double k) const { return std::pow(squared(), k / 2); }
+
+  public:
+    friend std::ostream& operator<<(std::ostream& os, const three_vector& v) {
+        return os << '{' << v.data[0] << ',' << v.data[1] << ',' << v.data[2]
+                  << '}';
+    }
+};
+
+class four_vector {
+  public:
+    double data[4];
+
+  public:
+    inline three_vector& spacial(void) {
+        return *reinterpret_cast<three_vector*>(data + 1);
+    }
+    inline three_vector spacial(void) const {
+        three_vector v = {data[1], data[2], data[3]};
+        return v;
+    }
+
+  public: // operations
+    inline double& operator[](size_t i) { return data[i]; }
+    inline double  operator[](size_t i) const { return data[i]; }
+    inline double& operator()(size_t i) { return data[i]; }
+    inline double  operator()(size_t i) const { return data[i]; }
+
+    // plus and minus
+    inline four_vector& operator+=(const four_vector& v2) {
+        for (int i = 0; i < 4; ++i) {
+            this->data[i] += v2.data[i];
+        }
+        return *this;
+    }
+    inline four_vector& operator-=(const four_vector& v2) {
+        for (int i = 0; i < 4; ++i) {
+            this->data[i] -= v2.data[i];
+        }
+        return *this;
+    }
+    inline four_vector operator+(const four_vector& v2) const {
+        auto v = *this;
+        return v += v2;
+    }
+    inline four_vector operator-(const four_vector& v2) const {
+        auto v = *this;
+        return v -= v2;
+    }
+    inline four_vector operator-(void) const {
+        return {-data[0], -data[1], -data[2], -data[3]};
+    }
+
+    // multiply and divide
+    inline four_vector& operator*=(double k) {
+        for (int i = 0; i < 4; ++i) {
+            this->data[i] *= k;
+        }
+        return *this;
+    }
+    inline four_vector& operator/=(double k) {
+        for (int i = 0; i < 4; ++i) {
+            this->data[i] /= k;
+        }
+        return *this;
+    }
+    inline four_vector operator*(double k) const {
+        auto v = *this;
+        return v *= k;
+    }
+    inline four_vector operator/(double k) const {
+        auto v = *this;
+        return v /= k;
+    }
+    friend inline four_vector operator*(double k, const four_vector& v) {
+        return v*k;
+    }
+
+    // inner products
+    inline double operator*(const four_vector& v2) const {
+        return
+#if METRIC == MPPP
+            -
+#endif
+            (data[0] * v2.data[0] - data[1] * v2.data[1] -
+             data[2] * v2.data[2] - data[3] * v2.data[3]);
+    }
+
+  public: // porperties
+    inline double squared(void) const {
+        return (*this) * (*this);
+    }
+    inline double norm(void) const {
+        return std::sqrt(std::fabs(squared()));
+    }
+    inline bool is_null(double eps = std::numeric_limits<double>::epsilon()) const {
+        return std::fabs(squared()) <= eps;
+    }
+    // TODO: move to yuc::momentum
+    inline three_vector beta(void) const {
+        return spacial() / data[0];
+    }
+    inline double gamma(void) const {
+        return data[0] / norm();
+    }
+    inline three_vector gamma_beta(void) const {
+        return spacial() / norm();
+    }
+    inline double operator^(const double k) const {
+        return std::pow(std::fabs(squared()), k / 2);
+    }
+
+  public:
+    // Lorentz boost
+    four_vector& boosted_by(const three_vector& beta) {
+        // TODO: validate 0 < beta^2 < 1
+        four_vector& x     = *this;
+        const double bb    = beta * beta;
+        const double bx    = beta * x.spacial();
+        const double gamma = 1 / std::sqrt(1 - bb);
+        x(0) *= gamma;
+        x.spacial() += beta * (bx * (gamma - 1) / bb - x(0));
+        x(0) -= bx * gamma;
+        return x;
+    }
+    four_vector& boosted_gb(const three_vector& gammabeta, double gamma = 0) {
+        if (gamma < 1) {
+            gamma = std::sqrt(gammabeta.squared() + 1);
+        }
+        four_vector& x = *this;
+        const double gb2   = gammabeta.squared();
+        const double gbx   = gammabeta * x.spacial();
+        x.spacial() += gammabeta * (gbx * (gamma - 1) / gb2 - x[0]);
+        x[0] = gamma * x[0] - gbx;
+        return x;
+    }
+    four_vector& boosted_by(const four_vector& p) {
+        auto u = p / p.norm();
+        return boosted_gb(u.spacial(), u[0]);
+    }
+    inline friend four_vector operator<<(const four_vector&  x,
+                                         const three_vector& beta) {
+        four_vector x_new = x;
+        return x_new.boosted_by(beta);
+    }
+    inline friend const three_vector& operator>>(const three_vector& beta,
+                                                 four_vector&        x) {
+        x.boosted_by(beta);
+        return beta;
+    }
+
+  public:
+    friend std::ostream& operator<<(std::ostream& os, const four_vector& v) {
+        return os << '{' << v.data[0] << ',' << v.data[1] << ',' << v.data[2]
+                  << ',' << v.data[3] << '}';
+    }
+};
+
+double gamma_to_beta(double gamma) { return std::sqrt(1 - 1 / gamma / gamma); }
+double beta_to_gamma(double beta) { return 1 / std::sqrt(1 - beta * beta); }
+double beta_to_gamma(const three_vector& beta) {
+    return 1 / std::sqrt(1 - beta * beta);
+}
+
+// TODO: merge into yuc::momentum
+four_vector make_momentum(double m, double E = 0,
+                               const three_vector& direction = {0, 0, 1}) {
+    if (E <= m) {
+        E = m;
+    }
+    four_vector p = {E, 0, 0, 0};
+    p.spacial()   = (std::sqrt(E * E - m * m) / direction.norm()) * direction;
+    return p;
+}
+
+}; // namespace yuc
+
+// vi: ft=cpp
