@@ -1,0 +1,151 @@
+/* Copyright (c) 2022 Yu-Chen Ding
+ *
+ * Permission is hereby granted, free of charge, to any person
+ * obtaining a copy of this software and associated documentation
+ * files (the "Software"), to deal in the Software without
+ * restriction, including without limitation the rights to use,
+ * copy, modify, merge, publish, distribute, sublicense, and/or
+ * sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following
+ * conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+ * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+ * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+ * OTHER DEALINGS IN THE SOFTWARE.
+ */
+
+#pragma once
+
+#include <functional>
+#include <map>
+#include <memory>
+#include <stdexcept>
+#include <string>
+
+namespace yuc
+{
+/** General factory class for dynamic object creation.
+ *
+ *  This class manages a registry of construction functions for
+ *  objects with a common base class.  Each function can take
+ *  arguents whose types match with the ones declared by the
+ *  template argument `Args` of the factory class, and return an
+ *  `std::unique_ptr` pointing to the created object.
+ *
+ *  To use factory with a base class `Base`, simply add the
+ *  following line to a header file:
+ *
+ *      factory_decl_registry(factory<Base>);
+ *
+ *  And implementing the registry in the source file using:
+ *
+ *      factory_init_registry(factory<Base>);
+ *  
+ *  Note that there can only be one `factory_init_registry` call for
+ *  each factory type.
+ *
+ *  To register a simple constructor in the factory type, call
+ *
+ *      factory<Base>::record("id", f);
+ *
+ *  This will add the function `f` to the registry with id `id` and
+ *  return the registered function object.  In order to take effect
+ *  before the main function, the returned value can be assigned to
+ *  a global static variable.
+ *
+ *  To call the recorded constructor, call
+ *
+ *      factory<Base>::create("id");
+ *
+ *  It returns an `std::unique_ptr<Base>` as if f() is called.  If
+ *  the requiested id has not been recorded in the registry, a
+ *  `nullptr` will be returned.
+ *
+ *  The template parameters `Args` define the signature of the
+ *  constructor functions.  For example,
+ *
+ *      using Factory = factory<Base, int, std::string>;
+ *      auto r = Factory::record("id", f);
+ *      auto p = Factory::create("id", 1, "a");
+ *
+ *  is equivalent to creating a pointer by calling `p=f(1,"a")` or
+ *  `p=r(1,"a")`.
+ *
+ *  It is eaiser for constructor signatures:
+ *
+ *      Factory::record<Child>("id2");
+ *
+ *  Now `Factory::create("id2", 1, "a")` is equivalent to
+ *  `std::make_unique<Child>(1, "a")`.
+ */
+template <typename Base, typename... Args> class factory
+{
+public:
+  using pointer_type = std::unique_ptr<Base>;
+  using creator_type = std::function<pointer_type(Args &&...)>;
+  using handler_type = std::function<void(pointer_type &)>;
+  using registry_type = std::map<std::string, creator_type>;
+
+private:
+  /// table storing all the registered constructors
+  static registry_type _registry;
+
+public:
+  /// return the currently managed registry
+  static const registry_type &registry(void)
+  {
+    return _registry;
+  }
+
+  /// recored a constructor with given id
+  static auto record(const char *id, creator_type fcn)
+  {
+    if (_registry.find(id) != _registry.end())
+    {
+      throw std::logic_error(
+          std::string("duplicated id '") + id +
+          "' recorded by: " + __PRETTY_FUNCTION__);
+    }
+    return _registry[id] = fcn;
+  }
+
+  /// record a constructor of a child class with given id
+  template <typename Child>
+  static auto record(
+      const char *id, handler_type hdl = [](pointer_type &) {})
+  {
+    return record(
+        id,
+        [=](Args &&...args) -> pointer_type
+        {
+          pointer_type p = std::make_unique<Child>(std::forward<Args>(args)...);
+          hdl(p);
+          return p;
+        });
+  }
+
+  /// create an object with a registered constructor id
+  template <typename... _Args>
+  static pointer_type create(const std::string &id, _Args &&...args)
+  {
+    auto it = _registry.find(id);
+    return it == _registry.end() ? nullptr
+                                 : it->second(std::forward<Args>(args)...);
+  }
+};
+}; // namespace yuc
+
+/// declare the factory registry in the global scope
+#define factory_decl_registry(F) template <> F::registry_type F::_registry
+/// initialize the factory registry in the global scope
+#define factory_init_registry(F) template <> F::registry_type F::_registry = {}
+
+// vi:ft=cpp:tw=68
