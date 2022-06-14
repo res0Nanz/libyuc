@@ -1,68 +1,139 @@
+/* Copyright (c) 2022 Yu-Chen Ding
+ * 
+ * Permission is hereby granted, free of charge, to any person
+ * obtaining a copy of this software and associated documentation
+ * files (the "Software"), to deal in the Software without
+ * restriction, including without limitation the rights to use,
+ * copy, modify, merge, publish, distribute, sublicense, and/or
+ * sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following
+ * conditions:
+ * 
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+ * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+ * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+ * OTHER DEALINGS IN THE SOFTWARE.
+ */
+
 #pragma once
+
+#include <algorithm>
 #include <cstdio>
 #include <iostream>
-#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
 
-namespace yuc {
+namespace yuc
+{
 
-template <typename... Args>
-std::string format(const std::string& fmt, Args... args) {
-    size_t size = std::snprintf(nullptr, 0, fmt.c_str(), args...) + 1;
-    std::unique_ptr<char[]> buf(new char[size]);
-    std::snprintf(buf.get(), size, fmt.c_str(), args...);
-    return std::string(buf.get(), buf.get() + size - 1);
-}
-
-template <typename SeperatorType, typename LastType>
-std::ostream& stream_join(std::ostream& os, SeperatorType, LastType last) {
-    return os << last;
-}
-template <typename SeperatorType, typename FirstType, typename... RestType>
-std::ostream& stream_join(std::ostream& os, SeperatorType sep, FirstType first,
-                          RestType... rest) {
-    os << first << sep;
-    return stream_join(os, sep, rest...);
-}
-
-template <typename SeperatorType, typename... T>
-std::string string_join(SeperatorType sep, T... args) {
-    std::stringstream ss;
-    stream_join(ss, sep, args...);
-    return ss.str();
-}
-
-std::string toupper(std::string str) {
-    for (auto& c : str) {
-        c = std::toupper(c);
-    }
+struct string_formatter
+{
+  const char *fmt;
+  constexpr string_formatter(const char *fmt) : fmt(fmt) {}
+  template <typename... Args> std::string operator()(Args... args)
+  {
+    static_assert(sizeof...(args), "string formatter requires argument");
+    std::string str;
+    str.resize(std::snprintf(
+        nullptr, 0, fmt, forward<Args>(std::forward<Args>(args))...));
+    std::snprintf(
+        str.data(), str.size() + 1, fmt,
+        forward<Args>(std::forward<Args>(args))...);
     return str;
+  }
+  template <typename T> inline auto forward(T &&t)
+  {
+    return t;
+  }
+};
+
+namespace string_literals
+{
+constexpr string_formatter operator"" _fmt(const char *fmt, size_t)
+{
+  return string_formatter(fmt);
 }
-std::string tolower(std::string str) {
-    for (auto& c : str) {
-        c = std::tolower(c);
-    }
-    return str;
+}; // namespace string_literals
+
+template <> inline auto string_formatter::forward(std::string &t)
+{
+  return t.c_str();
+}
+template <> inline auto string_formatter::forward(std::string &&t)
+{
+  return t.c_str();
+}
+
+template <typename SeparatorType, typename LastType>
+inline std::ostream &stream_join(std::ostream &os, SeparatorType, LastType last)
+{
+  return os << last;
+}
+
+template <typename SeparatorType, typename FirstType, typename... RestType>
+inline std::ostream &stream_join(
+    std::ostream &os, SeparatorType sep, FirstType first, RestType... rest)
+{
+  os << first << sep;
+  return stream_join(os, sep, rest...);
+}
+
+template <typename SeparatorType, typename... T>
+inline std::string string_join(SeparatorType sep, T... args)
+{
+  std::stringstream ss;
+  stream_join(ss, sep, args...);
+  return ss.str();
+}
+
+template <typename SeparatorType, typename ForwardIt>
+inline std::ostream &stream_iterate(
+    std::ostream &os, SeparatorType sep, ForwardIt begin, ForwardIt end)
+{
+  if (begin != end)
+    os << *begin++;
+  while (begin != end)
+    os << sep << *begin++;
+  return os;
+}
+
+template <typename SeparatorType, typename Container>
+inline std::ostream &
+stream_iterate(std::ostream &os, SeparatorType sep, const Container &c)
+{
+  return stream_iterate(os, sep, std::begin(c), std::end(c));
+}
+
+template <typename... Args> inline std::string string_iterate(Args &&...args)
+{
+  std::stringstream ss;
+  stream_iterate<Args...>(ss, std::forward<Args>(args)...);
+  return ss.str();
+}
+
+inline std::string toupper(std::string str)
+{
+  std::transform(
+      str.begin(), str.end(), str.begin(),
+      [](char c) { return std::toupper(c); });
+  return str;
+}
+
+inline std::string tolower(std::string str)
+{
+  std::transform(
+      str.begin(), str.end(), str.begin(),
+      [](char c) { return std::tolower(c); });
+  return str;
 }
 }; // namespace yuc
-
-namespace std {
-
-template <typename T>
-std::ostream& operator<<(std::ostream& os, const std::vector<T> v) {
-    auto it = v.cbegin();
-    os << '{';
-    while (true) {
-        os << *it;
-        if (++it == v.cend()) {
-            return os << '}';
-        } else {
-            os << ',';
-        }
-    }
-}
-}; // namespace std
 
 // vi:ft=cpp
