@@ -4,7 +4,7 @@
 
 using namespace yuc;
 
-TEST(libyuc_config, string_escape) {
+TEST(config, string_escape) {
 #define __escape_test(in, out)                                                 \
   EXPECT_EQ(__config_detail::string_escape(in), out)
   __escape_test("abc", "abc");
@@ -31,7 +31,7 @@ TEST(libyuc_config, string_escape) {
 #undef __escape_test
 }
 
-TEST(libyuc_config, string_unescape_expand) {
+TEST(config, string_unescape_expand) {
   std::map<std::string, std::string> d = {{"key1", "val1"},
                                           {"key2", "val2"},
                                           {"keyn", "val\\n"}};
@@ -52,7 +52,7 @@ TEST(libyuc_config, string_unescape_expand) {
 #undef __expand_test
 }
 
-TEST(libyuc_config, string_unescape) {
+TEST(config, string_unescape) {
 #define __unescape_test(in, out)                                               \
   EXPECT_EQ(__config_detail::string_unescape(in), out)
   __unescape_test("abc", "abc");
@@ -79,7 +79,7 @@ TEST(libyuc_config, string_unescape) {
 #undef __unescape_test
 }
 
-TEST(libyuc_config, read_qouted) {
+TEST(config, read_qouted) {
   using namespace std::string_literals;
   std::stringstream ss;
 #define __read_quoted_test(in, out, nextc)                                     \
@@ -93,24 +93,25 @@ TEST(libyuc_config, read_qouted) {
 #undef __get_qouted_test
 }
 
-TEST(libyuc_config, read_word) {
+TEST(config, read_word) {
   std::stringstream ss;
 #define __read_word_test(in, out, nextc, ...)                                  \
   ss.clear(), ss.str(in);                                                      \
-  EXPECT_EQ(__config_detail::read_word(ss __VA_OPT__(, ) __VA_ARGS__), out);   \
+  EXPECT_EQ(__config_detail::read_word(ss, __VA_ARGS__), out);   \
   EXPECT_EQ(ss.peek(), nextc);
-  __read_word_test("", "", EOF);
-  __read_word_test("abc ", "abc", ' ');
-  __read_word_test("abc. ", "abc.", ' ');
+  __read_word_test("", "", EOF, EOF);
+  __read_word_test("abc ", "abc", ' ', EOF);
+  __read_word_test("abc. ", "abc.", ' ', EOF);
   __read_word_test("abc. ", "abc", '.', '.');
-  __read_word_test("a\"b \\\"c.d\"e.f", "ab \"c.de.f", EOF);
+  __read_word_test(R"~~(a"b \"c.d"e.f)~~", R"~~(ab "c.de.f)~~", EOF, EOF);
+  __read_word_test("a\"b \\\"c.d\"e.f", "ab \"c.de.f", EOF, EOF);
   __read_word_test("a\"b \\\"c.d\"e.f", "ab \"c.de", '.', '.');
-  __read_word_test("a'b \\\"c\\'d e\"f", "ab \\\"c\\d", ' ');
-  __read_word_test("a\"b \\\"c\\\"d e\"f ", "ab \"c\"d ef", ' ');
+  __read_word_test("a'b \\\"c\\'d e\"f", "ab \\\"c\\d", ' ', EOF);
+  __read_word_test("a\"b \\\"c\\\"d e\"f ", "ab \"c\"d ef", ' ', EOF);
 #undef __read_word_test
 }
 
-TEST(libyuc_config, string_split) {
+TEST(config, string_split) {
   using __config_detail::string_split;
   std::vector<std::string_view> vvec;
   std::vector<std::string> svec;
@@ -179,7 +180,7 @@ TEST(libyuc_config, string_split) {
 #undef __expect_vector_eq
 }
 
-TEST(libyuc_config, stream_trim) {
+TEST(config, stream_trim) {
   using __config_detail::stream_trim;
   std::stringstream ss;
 
@@ -213,7 +214,7 @@ TEST(libyuc_config, stream_trim) {
   EXPECT_EQ(ss.tellg(), 13);
 }
 
-TEST(libyuc_config, string_trim) {
+TEST(config, string_trim) {
 #define __string_trim_test(dir, in, out)                                       \
   EXPECT_EQ(__config_detail::string_trim(in, dir), out)
   __string_trim_test(-1, "", "");

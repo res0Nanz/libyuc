@@ -34,7 +34,7 @@ if(BUILD_TESTING)
             LCOV_ARGS --no-external
             BASE_DIRECTORY ${PROJECT_SOURCE_DIR}
 	    EXECUTABLE ctest -j ${n_cores}
-	    EXCLUDE "*.cc"
+            EXCLUDE "*.cc" "*.inc"
 	    )
     endif()
     enable_testing()
@@ -65,7 +65,7 @@ foreach(module ${modules})
                     target_link_libraries(test-${module_name} PRIVATE GTest::gtest_main)
 		    target_compile_definitions(test-${module_name}
 			PRIVATE TEST_SRC_DIR="${module}")
-		    add_test(NAME ${module_name} COMMAND test-${module_name})
+                    gtest_discover_tests(test-${module_name} PROPERTIES RUN_SERIAL TRUE)
 		endif()
 	    endif()
 	endif()

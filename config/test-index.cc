@@ -11,7 +11,7 @@ struct S {
   S(const std::string &s) : str('[' + s + ']') {}
 };
 
-TEST(libyuc_config, indexing) {
+TEST(config, indexing) {
 
   config c;
 

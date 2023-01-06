@@ -249,9 +249,35 @@ inline auto read_word(std::istream &is, char del = EOF) {
     }
   }
 }
-inline auto &read_word(std::istream &is, std::string &dest, char del = EOF) {
-  auto temp = read_word(is, del);
-  return is.good() ? dest = temp, is : is;
+
+inline auto read_word(std::istream &is, std::string_view dels)
+{
+  auto is_del = [&dels](char c) -> bool
+  {
+    for (auto d : dels)
+      if (c == d)
+        return true;
+    return false;
+  };
+  std::string temp;
+  is >> std::ws;
+  while (true)
+  {
+    if (char c; is.get(c).fail())
+    {
+      if (temp.size())
+        is.clear(); // clear failbit
+      return temp;
+    }
+    else if (::isspace(c) || is_del(c))
+      return is.unget(), temp;
+    else if (c == '\'')
+      temp += read_quoted(is, c, c);
+    else if (c == '"')
+      temp += string_unescape(read_quoted(is));
+    else
+      temp.push_back(c);
+  }
 }
 
 inline auto string_split(const std::string_view &sv,
@@ -342,7 +368,7 @@ public:
 
   static void check_eof(std::istream &is, const std::string &filename) {
     if (is.eof() || !is.good()) {
-      throw parse_error(is, filename, "unexpecteded eof");
+      throw parse_error(is, filename, "unexpected eof");
     }
   };
 };
@@ -370,6 +396,7 @@ inline parse_scope default_scope(const std::string &fn,
   };
   parse_scope::dict_type d;
   d.emplace("configDir", absdir(fn + "/.."));
+  d.emplace("workDir", absdir("."));
   d.emplace("cwd", absdir("."));
   for (const auto &[k, v] : dict) {
     d[k] = v;
@@ -451,6 +478,18 @@ struct config : __config_detail::var_t {
   template <typename T> bool holds(void) const {
     return std::holds_alternative<T>(*this);
   }
+  bool is_array(size_t min_size = 0) const {
+    return holds<arr_t>() && arr().size() >= min_size;
+  }
+  bool is_object(void) const { return holds<obj_t>(); }
+  bool is_object(const std::vector<std::string>& keys) const {
+    if (!holds<obj_t>()) return false;
+    for (const auto& k : keys) if (!operator[](k).is_set()) return false;
+    return true;
+  }
+  bool is_string(void) const { return holds<str_t>(); }
+  bool is_number(void) const { return holds<dbl_t>() || holds<int_t>(); }
+  bool is_integer(void) const { return holds<int_t>(); }
 
   // convert from initializer_list
   auto &operator=(std::initializer_list<config> l) {
@@ -539,6 +578,53 @@ struct config : __config_detail::var_t {
     }
   }
 
+  config &remove(std::string_view sv) {
+    auto &o = obj();
+    size_t off = 0;
+    for (auto it = o.begin(); it != o.end(); ++it) {
+      if (off) {
+        *(it - off) = std::move(*it);
+      }
+      off += (it->first == sv);
+    }
+    o.erase(o.end() - off);
+    return *this;
+  }
+
+  // merge
+  config &merge_from(const config &c) {
+    using namespace __config_detail;
+    if (holds<obj_t>() && c.holds<obj_t>()) {
+      for (const auto &[k, v] : c.obj()) {
+        v.is_set() ? (*this)[k].merge_from(v) : v;
+      }
+    } else {
+      *this = c;
+    }
+    return *this;
+  }
+  config &merge_from(config &&c) {
+    using namespace __config_detail;
+    if (holds<obj_t>() && c.holds<obj_t>()) {
+      for (const auto &[k, v] : c.obj()) {
+        v.is_set() ? (*this)[k].merge_from(std::move(v)) : v;
+      }
+    } else {
+      *this = std::move(c);
+    }
+    return *this;
+  }
+  config &operator<<(const config &c) { return merge_from(c); }
+  config &operator<<(config &&c) { return merge_from(std::move(c)); }
+
+  config &read_string(const std::string &s)
+  {
+    std::stringstream ss(s);
+    config c;
+    c.parse_toml(ss);
+    return merge_from(c);
+  }
+
   std::ostream &write_json_inline(std::ostream &os) const;
   std::ostream &write_toml_inline(std::ostream &os) const;
   // std::ostream &write_json(std::ostream &os) const;
@@ -606,8 +692,38 @@ inline config &config::operator[](const std::string &path) {
   using namespace __config_detail;
   auto pcfg = this;
   std::stringstream ss(path);
-  while (ss) {
-    auto key = read_word(ss, '.');
+  while (ss >> std::ws) {
+    if (ss.peek() == '[' && ss.ignore())
+    { // inline path access
+      ss >> std::ws;
+      if (char c = ss.peek(); c == '"' || c == '\'')
+      {
+        auto sub_path = read_quoted(ss.ignore(), c);
+        if (c == '"')
+          sub_path = string_unescape(sub_path);
+        if (!pcfg->is_object())
+        {
+          throw std::runtime_error(
+              "cannot access path " + string_quote(sub_path) +
+              " of a non-object.");
+        }
+        pcfg = &((*pcfg)[sub_path]);
+      }
+      else
+      { // index access
+        int idx = 0;
+        ss >> idx;
+        if (!pcfg->is_array())
+          throw std::runtime_error("cannot index a non-array.");
+        idx += (idx < 0) * pcfg->size(); // negative index from back
+        if (idx < 0 || (size_t)idx >= pcfg->size())
+          throw std::runtime_error("array index out of boundary.");
+        pcfg = &(pcfg->arr()[idx]);
+      }
+      if (ss >> std::ws, ss.get() != ']')
+        throw std::runtime_error("expect closing ']' in path.");
+    }
+    auto key = read_word(ss, ".[");
     ss >> std::ws, ss.peek() == '.' && ss.ignore();
     if (key.size()) {
       if (pcfg->holds<arr_t>()) { // access last element in array
@@ -638,8 +754,38 @@ inline const config &config::operator[](const std::string &path) const {
   using namespace __config_detail;
   auto pcfg = this;
   std::stringstream ss(path);
-  while (ss) {
-    auto key = read_word(ss, '.');
+  while (ss >> std::ws) {
+    if (ss.peek() == '[' && ss.ignore())
+    { // inline path access
+      ss >> std::ws;
+      if (char c = ss.peek(); c == '"' || c == '\'')
+      {
+        auto sub_path = read_quoted(ss.ignore(), c);
+        if (c == '"')
+          sub_path = string_unescape(sub_path);
+        if (!pcfg->is_object())
+        {
+          throw std::runtime_error(
+              "cannot access path " + string_quote(sub_path) +
+              " of a non-object.");
+        }
+        pcfg = &((*pcfg)[sub_path]);
+      }
+      else
+      { // index access
+        int idx = 0;
+        ss >> idx;
+        if (!pcfg->is_array())
+          throw std::runtime_error("cannot index a non-array.");
+        idx += (idx < 0) * pcfg->size(); // negative index from back
+        if (idx < 0 || (size_t)idx >= pcfg->size())
+          throw std::runtime_error("array index out of boundary.");
+        pcfg = &(pcfg->arr()[idx]);
+      }
+      if (ss >> std::ws, ss.get() != ']')
+        throw std::runtime_error("expect closing ']' in path.");
+    }
+    auto key = read_word(ss, ".[");
     ss >> std::ws, ss.peek() == '.' && ss.ignore();
     if (key.size()) {
       if (pcfg->holds<arr_t>() && pcfg->arr().size()) {
@@ -949,28 +1095,36 @@ config::parse_toml_inline(std::istream &is,
     return *this = std::move(tmp_obj), is;
   }
   case 't': {
+    auto pos = is.tellg();
     if (is.get() == 'r' && is.get() == 'u' && is.get() == 'e') {
       return *this = true, is;
     }
+    is.seekg(pos).unget();
     throw parse_error(is, fn, "unexpected symbol.");
   }
   case 'f': {
+    auto pos = is.tellg();
     if (is.get() == 'a' && is.get() == 'l' && //
         is.get() == 's' && is.get() == 'e') {
       return *this = false, is;
     }
+    is.seekg(pos).unget();
     throw parse_error(is, fn, "unexpected symbol.");
   }
   case 'n': {
+    auto pos = is.tellg();
     if (is.get() == 'a' && is.get() == 'n') {
       return *this = NAN, is;
     }
+    is.seekg(pos).unget();
     throw parse_error(is, fn, "unexpected symbol.");
   }
   case 'i': {
+    auto pos = is.tellg();
     if (is.get() == 'n' && is.get() == 'f') {
       return *this = HUGE_VAL, is;
     }
+    is.seekg(pos).unget();
     throw parse_error(is, fn, "unexpected symbol.");
   }
   default: {
@@ -1029,6 +1183,7 @@ config::parse_toml_inline(std::istream &is,
         throw parse_error(is, fn, "unexpected character.");
       }
     } else {
+      is.unget();
       throw parse_error(is, fn, "unexpected character.");
     }
     // auto pos = is.tellg();

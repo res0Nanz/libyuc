@@ -4,7 +4,7 @@
 
 using namespace yuc;
 
-TEST(libyuc_config, write) {
+TEST(config, write) {
   std::stringstream ss;
   config c;
 

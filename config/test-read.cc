@@ -14,7 +14,7 @@ using namespace yuc;
   EXPECT_TRUE(is.fail());                                                      \
   EXPECT_TRUE(is.eof());
 
-TEST(libyuc_config, parse_json) {
+TEST(config, parse_json) {
   config c;
   std::istringstream iss;
   std::ostringstream oss;
@@ -61,7 +61,7 @@ TEST(libyuc_config, parse_json) {
   EXPECT_EQ(dig, c.get<type>());                                               \
   __check_eof(iss);
 
-TEST(libyuc_config, parse_toml_inline_string) {
+TEST(config, parse_toml_inline_string) {
   using namespace __config_detail;
   config c;
   std::istringstream iss;
@@ -85,7 +85,7 @@ TEST(libyuc_config, parse_toml_inline_string) {
   __test_toml(str_t, "'''\r\n\\\r\n \ta\\\r\n\tbc'''", "\\\r\n \ta\\\r\n\tbc");
 }
 
-TEST(libyuc_config, parse_toml_inline_number) {
+TEST(config, parse_toml_inline_number) {
   using namespace __config_detail;
   config c;
   std::istringstream iss;
@@ -178,7 +178,7 @@ TEST(libyuc_config, parse_toml_inline_number) {
   // "2020-01-02 02:30:43+0800";
 }
 
-TEST(libyuc_config, parse_file) {
+TEST(config, parse_file) {
   for (size_t i = 1; i <= 99; ++i) {
     std::stringstream fss;
     fss << (TEST_SRC_DIR "/output-inline-");
@@ -214,6 +214,17 @@ TEST(libyuc_config, parse_file) {
     }
     ifs.close();
   }
+}
+
+TEST(config, read_string) {
+  config c;
+  c["a"] = 13;
+  c.read_string("a = 15");
+  c.read_string("b = 'B'");
+  c.read_string("c = []");
+  EXPECT_EQ((int)c["a"], 15);
+  EXPECT_EQ(c["b"].str(), "B");
+  EXPECT_EQ(c["b"].size(), 0);
 }
 
 #undef __check_eof

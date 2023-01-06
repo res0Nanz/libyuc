@@ -38,7 +38,7 @@ void throw_wrapper(const std::string &input, bool il) {
 #define __bad_toml(input)                                                      \
   EXPECT_THROW(throw_wrapper(input, false), config::parse_error)
 
-TEST(libyuc_config, exception) {
+TEST(config, exception) {
   __bad_toml_inline("''' abc \n");
   __bad_toml_inline("[\n\n1 2 3 ]");
   __bad_toml_inline("[1 2 3 \n");
